@@ -1,3 +1,4 @@
+
 data "aws_ami" "ubuntu" {
   most_recent = true
   owners      = ["099720109477"]
@@ -38,7 +39,13 @@ resource "aws_instance" "app" {
     aws_region        = var.aws_region
     app_server_js_b64 = base64encode(file("${path.module}/../app/server.js"))
     app_package_b64   = base64encode(file("${path.module}/../app/package.json"))
-    agent_config_b64  = base64encode(file("${path.module}/cloudwatch-agent-config.json"))
+
+    agent_config_b64 = base64encode(templatefile(
+      "${path.module}/cloudwatch-agent-config.json.tftpl",
+      {
+        project_name = var.project_name
+      }
+    ))
   })
 
   user_data_replace_on_change = true

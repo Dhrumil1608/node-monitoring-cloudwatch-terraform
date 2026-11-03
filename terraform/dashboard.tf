@@ -1,3 +1,4 @@
+
 resource "aws_cloudwatch_dashboard" "main" {
   dashboard_name = "${var.project_name}-dashboard"
 
@@ -94,6 +95,7 @@ resource "aws_cloudwatch_dashboard" "main" {
           view   = "timeSeries"
           region = var.aws_region
           period = 300
+          stat   = "Sum"
 
           metrics = [
             [

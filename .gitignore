@@ -1,16 +1,19 @@
-.terraform/
+```gitignore
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfplan
+terraform/tfplan
+terraform/terraform.tfvars
+terraform/terraform.tfvars.json
 
-*.tfstate
-*.tfstate.*
-
-*.tfplan
-tfplan
-
-terraform.tfvars
-terraform.tfvars.json
-
+# Crash logs
 crash.log
 
+# Node.js
 node_modules/
 
+# Environment files
 .env
+```

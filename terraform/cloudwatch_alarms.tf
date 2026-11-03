@@ -1,3 +1,4 @@
+
 resource "aws_cloudwatch_metric_alarm" "app_errors" {
   alarm_name        = "${var.project_name}-errors-greater-than-3"
   alarm_description = "More than 3 application errors in 5 minutes"
@@ -28,8 +29,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu" {
   alarm_name        = "${var.project_name}-cpu-greater-than-70"
   alarm_description = "EC2 CPU utilization greater than 70 percent"
 
-  namespace = "AWS/EC2"
-
+  namespace   = "AWS/EC2"
   metric_name = "CPUUtilization"
 
   dimensions = {

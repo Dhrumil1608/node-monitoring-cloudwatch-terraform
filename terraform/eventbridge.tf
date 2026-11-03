@@ -1,6 +1,7 @@
+
 resource "aws_cloudwatch_event_rule" "alarm_state" {
   name        = "${var.project_name}-alarm-state"
-  description = "Capture CloudWatch alarms entering ALARM state"
+  description = "Capture all state changes for the application error and CPU alarms"
 
   event_pattern = jsonencode({
     source = [
@@ -11,10 +12,17 @@ resource "aws_cloudwatch_event_rule" "alarm_state" {
       "CloudWatch Alarm State Change"
     ]
 
+    resources = [
+      aws_cloudwatch_metric_alarm.app_errors.arn,
+      aws_cloudwatch_metric_alarm.cpu.arn
+    ]
+
     detail = {
       state = {
         value = [
-          "ALARM"
+          "ALARM",
+          "OK",
+          "INSUFFICIENT_DATA"
         ]
       }
     }
