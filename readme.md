@@ -2,56 +2,96 @@
 
 ## Project Overview
 
-This project provisions an AWS EC2 instance running a Node.js application and implements end-to-end monitoring and alerting using Amazon CloudWatch.
+This project provisions AWS infrastructure using Terraform to deploy a Node.js application on Amazon EC2 and implement monitoring, logging, and alerting using Amazon CloudWatch.
 
-Infrastructure is managed using Terraform, with separate configuration files organized by AWS service.
+The infrastructure supports multiple environments through Terraform Workspaces:
 
-## AWS Architecture
+- **dev** – Development environment
+- **prod** – Production environment
+
+Both environments use the same Terraform configuration, with environment-specific resource names, tags, log retention settings, and independent Terraform state.
+
+## Architecture
 
 ```text
-                 User / HTTP Client
-                         |
-                         v
-                 EC2 Ubuntu Instance
-                         |
-                  Node.js Application
-                     Port 3000
-                         |
-              +----------+----------+
-              |                     |
-              v                     v
-        CloudWatch Agent       Application Logs
-              |
-              v
-        Amazon CloudWatch
-              |
-       +------+------+------+
-       |             |      |
-       v             v      v
-      CPU          Memory   Disk
-       |
-       v
-  CloudWatch Alarms
-       |
-   +---+------+
-   |          |
-   v          v
-  SNS      EventBridge
- Email     Alarm Events
+                     User / HTTP Client
+                             |
+                             v
+                     EC2 Ubuntu Instance
+                             |
+                      Node.js Application
+                         Port 3000
+                             |
+                  +----------+----------+
+                  |                     |
+                  v                     v
+             CloudWatch Agent      Application Logs
+                  |
+                  v
+              CloudWatch
+                  |
+          +-------+--------+
+          |       |        |
+          v       v        v
+         CPU    Memory    Disk
+          |
+          v
+     CloudWatch Alarms
+          |
+      +---+---------+
+      |             |
+      v             v
+     SNS         EventBridge
+    Email        Alarm Events
+                     |
+                     v
+                CloudWatch Logs
 ```
 
-## Infrastructure Details
+## AWS Services Used
 
-| Resource | Configuration |
+| Service | Purpose |
 |---|---|
-| AWS Region | ap-south-1 |
-| EC2 Instance | t2.micro |
-| Operating System | Ubuntu 22.04 |
-| Application Port | 3000 |
-| Dashboard | node-monitoring-dashboard |
-| Application Log Group | /aws/ec2/node-monitoring/app |
-| Event Log Group | /aws/events/node-monitoring-alarms |
-| SNS Topic | node-monitoring-alerts |
+| Amazon EC2 | Hosts the Node.js application |
+| Amazon VPC | Provides network isolation |
+| IAM | Grants EC2 access to monitoring and SSM |
+| CloudWatch Agent | Collects memory, disk, and log metrics |
+| CloudWatch Logs | Stores application and system logs |
+| CloudWatch Alarms | Monitors CPU and application errors |
+| CloudWatch Dashboard | Displays monitoring metrics |
+| Amazon SNS | Sends alarm notifications through email |
+| Amazon EventBridge | Routes CloudWatch alarm state changes |
+| Terraform | Provisions and manages infrastructure |
+
+## Multi-Environment Design
+
+Terraform Workspaces are used to maintain separate development and production environments.
+
+| Configuration | Dev | Prod |
+|---|---|---|
+| Workspace | dev | prod |
+| EC2 instance type | t2.micro | t2.micro |
+| Application log retention | 7 days | 30 days |
+| Event log retention | 7 days | 90 days |
+| Resource naming | -dev | -prod |
+| Environment tag | dev | prod |
+
+Resource names are generated dynamically using the active Terraform workspace.
+
+Examples:
+
+- `node-monitoring-dev-dashboard`
+- `node-monitoring-prod-dashboard`
+- `node-monitoring-dev-alerts`
+- `node-monitoring-prod-alerts`
+
+All resources supporting AWS tags receive common tags:
+
+- Project
+- Environment
+- ManagedBy
+
+A workspace guard prevents infrastructure deployment from the default workspace.
 
 ## Application Endpoints
 
@@ -59,16 +99,18 @@ Infrastructure is managed using Terraform, with separate configuration files org
 |---|---|
 | `/health` | Application health check |
 | `/error` | Generates an application error for testing |
-| `/stress` | Generates CPU load for alarm testing |
+| `/stress` | Generates CPU load for testing |
 
-## CloudWatch Monitoring
+The application listens on port 3000.
+
+## Monitoring and Alerting
 
 ### Metrics monitored
 
 - EC2 CPU utilization
 - Memory utilization through CloudWatch Agent
 - Disk utilization through CloudWatch Agent
-- Application errors through a CloudWatch metric filter
+- Application errors through a CloudWatch Logs metric filter
 
 ### CloudWatch Alarms
 
@@ -83,157 +125,205 @@ Infrastructure is managed using Terraform, with separate configuration files org
 **Application Error Alarm**
 
 - Metric: ErrorCount
-- Namespace: Application/NodeApp
+- Namespace: Application/NodeApp/<environment>
 - Threshold: Greater than 3
 - Period: 300 seconds
 - Statistic: Sum
 
-Both alarms are configured to send SNS notifications.
+Both alarms publish notifications to the environment-specific SNS topic.
 
 ### EventBridge
 
-EventBridge captures state changes for the two configured CloudWatch alarms:
+EventBridge captures state changes for the configured CPU and application-error alarms:
 
 - ALARM
 - OK
 - INSUFFICIENT_DATA
 
-Events are forwarded to a dedicated CloudWatch Logs group. The rule is scoped to the CPU and application-error alarms rather than every alarm in the AWS account.
+Events are forwarded to an environment-specific CloudWatch Logs group.
 
 ### CloudWatch Dashboard
 
-Dashboard name: `node-monitoring-dashboard`
+Each environment has its own dashboard containing four widgets:
 
-Four widgets:
+1. EC2 CPU utilization
+2. Memory utilization
+3. Disk utilization
+4. Application error count
 
-1. EC2 CPU Utilization
-2. Memory Utilization
-3. Disk Utilization
-4. Application Error Count
+Dashboard names include the workspace name.
 
-The root disk metric uses these dimensions:
+## Repository Structure
 
-- path: /
-- device: xvda1
-- fstype: ext4
-
-## Testing and Verification
-
-Tests completed on November 3, 2026.
-
-| Test | Result |
-|---|---|
-| Application health endpoint | HTTP 200 |
-| Application error endpoint | HTTP 500 |
-| Application log ingestion | Successful |
-| Error metric filter | Verified |
-| Error alarm | Triggered |
-| SNS email notification | Received |
-| EventBridge alarm event | Recorded |
-| CPU stress test | Successful |
-| CPU alarm | Triggered and recovered |
-| Memory metric | Approximately 20% |
-| Disk metric | Approximately 28.05% |
-| Dashboard | Four widgets configured and disk dimension corrected |
-
-The CPU stress test produced a peak CPU datapoint of approximately 95.23%, exceeding the 70% alarm threshold. CloudWatch transitioned the alarm from OK to ALARM and subsequently back to OK when CPU utilization dropped.
-
-## Terraform Setup
-
-Run these commands from the `terraform` directory.
-
-### 1. Configure variables
-
-Copy the example variables file:
-
-```cmd
-copy terraform.tfvars.example terraform.tfvars
+```text
+node-monitoring-cloudwatch-terraform/
+|
+|-- README.md
+|-- .gitignore
+|
+|-- terraform/
+    |-- .gitignore
+    |-- .terraform.lock.hcl
+    |-- versions.tf
+    |-- providers.tf
+    |-- variables.tf
+    |-- locals.tf
+    |-- workspace_guard.tf
+    |-- network.tf
+    |-- ec2.tf
+    |-- iam.tf
+    |-- cloudwatch_logs.tf
+    |-- cloudwatch_alarms.tf
+    |-- dashboard.tf
+    |-- eventbridge.tf
+    |-- sns.tf
+    |-- outputs.tf
+    |-- user_data.sh.tftpl
+    |-- cloudwatch-agent-config.json.tftpl
+    |-- dev.tfvars.example
+    |-- prod.tfvars.example
 ```
 
-Edit `terraform.tfvars` and set `alarm_email` to your email address.
+## Prerequisites
 
-The `alarm_email` variable is required. The other variables have default values and can be customized if needed.
+- Terraform 1.5 or later
+- AWS CLI
+- An AWS account
+- AWS credentials configured locally
+- An email address for SNS notifications
 
-### 2. Initialize Terraform
+Configure AWS credentials using an AWS CLI profile or another supported AWS authentication method.
+
+Example:
+
+```cmd
+aws configure --profile aws-learning-new
+```
+
+## Terraform Deployment
+
+All Terraform commands below should be executed from the `terraform` directory.
+
+### 1. Initialize Terraform
 
 ```cmd
 terraform init
 ```
 
-### 3. Format and validate
+### 2. Create workspaces
 
 ```cmd
-terraform fmt
-terraform validate
+terraform workspace new dev
+terraform workspace new prod
 ```
 
-### 4. Review and deploy
+If the workspaces already exist, list them instead:
 
 ```cmd
-terraform plan
-terraform apply
+terraform workspace list
 ```
 
-Always review the execution plan before applying changes, especially proposed EC2 replacements or resource deletions.
+### 3. Configure environment variables
 
-### 5. Confirm SNS subscription
+Create local configuration files from the examples:
 
-After deployment, AWS SNS sends a subscription confirmation email to the configured `alarm_email` address.
+```cmd
+copy dev.tfvars.example dev.tfvars
+copy prod.tfvars.example prod.tfvars
+```
 
-Open that email and confirm the subscription. Email alerts will not work until the subscription is confirmed.
+Edit both files and configure your own values, especially `alarm_email`.
 
-## Final Verification
+These local files are intentionally excluded from Git.
 
-Check the Terraform state:
+### 4. Deploy development
+
+```cmd
+terraform workspace select dev
+terraform plan -var-file="dev.tfvars" -out="dev.tfplan"
+terraform apply "dev.tfplan"
+```
+
+### 5. Deploy production
+
+```cmd
+terraform workspace select prod
+terraform plan -var-file="prod.tfvars" -out="prod.tfplan"
+terraform apply "prod.tfplan"
+```
+
+Always review the plan before applying changes. Check proposed resource replacements and deletions carefully.
+
+### 6. Switch environments
+
+```cmd
+terraform workspace select dev
+```
+
+Or:
+
+```cmd
+terraform workspace select prod
+```
+
+List available workspaces:
+
+```cmd
+terraform workspace list
+```
+
+Each workspace maintains its own Terraform state.
+
+## Verification
+
+Check the active workspace:
+
+```cmd
+terraform workspace show
+```
+
+Review managed resources:
 
 ```cmd
 terraform state list
 ```
 
-Check whether infrastructure matches the Terraform configuration:
-
-```cmd
-terraform plan
-```
-
-Expected result if there is no drift:
-
-```text
-No changes. Your infrastructure matches the configuration.
-```
-
-Review deployed outputs:
+Review outputs:
 
 ```cmd
 terraform output
 ```
 
-Verify the dashboard:
+Check for configuration drift:
 
 ```cmd
-aws cloudwatch get-dashboard --dashboard-name node-monitoring-dashboard --region ap-south-1
+terraform plan -var-file="dev.tfvars"
 ```
 
-## Important Notes
+Use the corresponding variable file for the selected workspace.
 
-- Infrastructure is currently deployed and intentionally left running.
-- Do not run `terraform destroy` without explicitly deciding to remove the infrastructure.
-- Review any proposed EC2 replacement or resource deletion before applying Terraform changes.
-- AWS resources can incur ongoing charges. Monitor AWS billing.
-- Keep `terraform.tfvars` and Terraform state files private. Do not commit credentials or sensitive configuration to GitHub.
+Verify the application:
 
-## Skills Demonstrated
+```cmd
+curl http://<EC2_PUBLIC_IP>:3000/health
+```
 
-- AWS EC2 provisioning
-- Terraform infrastructure as code
-- Terraform state management
-- Linux systemd services
-- Node.js application deployment
-- CloudWatch Agent configuration
-- CloudWatch Logs and metric filters
-- CloudWatch alarms
-- SNS notifications
-- EventBridge event routing
-- CloudWatch dashboards
-- AWS CLI troubleshooting
-- End-to-end monitoring and alert testing
+Verify the environment-specific dashboard:
+
+```cmd
+aws cloudwatch get-dashboard --dashboard-name node-monitoring-dev-dashboard --region ap-south-1
+```
+
+Replace `dev` with `prod` when checking production.
+
+## SNS Email Notifications
+
+After deployment, SNS sends a subscription confirmation email to the configured address.
+
+Confirm the subscription through the email link before expecting notifications.
+
+Development and production use separate SNS topics.
+
+## Security and Cost Considerations
+
+- Do not commit actual `.tfvars` files, Terraform state

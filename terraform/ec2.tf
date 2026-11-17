@@ -43,20 +43,21 @@ resource "aws_instance" "app" {
     agent_config_b64 = base64encode(templatefile(
       "${path.module}/cloudwatch-agent-config.json.tftpl",
       {
-        project_name = var.project_name
+        project_name = local.name_prefix
       }
     ))
   })
 
-  user_data_replace_on_change = true
+  user_data_replace_on_change = false
 
   depends_on = [
+    terraform_data.workspace_guard,
     aws_iam_role_policy_attachment.cloudwatch,
     aws_iam_role_policy_attachment.ssm,
     aws_cloudwatch_log_group.app
   ]
 
-  tags = {
-    Name = "${var.project_name}-ec2"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-ec2"
+  })
 }

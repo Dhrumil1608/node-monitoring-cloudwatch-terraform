@@ -1,0 +1,27 @@
+
+# Terraform working directory
+**/.terraform/*
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Terraform plans
+*.tfplan
+tfplan
+destroy.tfplan
+
+# Local variable files and secrets
+**/terraform.tfvars
+**/terraform.tfvars.*
+**/dev.tfvars
+**/prod.tfvars
+**/*.auto.tfvars
+
+# Local backup copies
+*.before-workspace-*
+
+# Crash logs
+crash.log
+crash.*.log

@@ -3,17 +3,21 @@ resource "aws_vpc" "main" {
   enable_dns_support   = true
   enable_dns_hostnames = true
 
-  tags = {
-    Name = "${var.project_name}-vpc"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-vpc"
+  })
+
+  depends_on = [terraform_data.workspace_guard]
 }
 
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
-  tags = {
-    Name = "${var.project_name}-igw"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-igw"
+  })
+
+  depends_on = [terraform_data.workspace_guard]
 }
 
 resource "aws_subnet" "public" {
@@ -22,9 +26,11 @@ resource "aws_subnet" "public" {
   availability_zone       = "${var.aws_region}a"
   map_public_ip_on_launch = true
 
-  tags = {
-    Name = "${var.project_name}-subnet"
-  }
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-subnet"
+  })
+
+  depends_on = [terraform_data.workspace_guard]
 }
 
 resource "aws_route_table" "public" {
@@ -34,15 +40,23 @@ resource "aws_route_table" "public" {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.main.id
   }
+
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-route-table"
+  })
+
+  depends_on = [terraform_data.workspace_guard]
 }
 
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
+
+  depends_on = [terraform_data.workspace_guard]
 }
 
 resource "aws_security_group" "app" {
-  name   = "${var.project_name}-sg"
+  name   = "${local.name_prefix}-sg"
   vpc_id = aws_vpc.main.id
 
   ingress {
@@ -58,4 +72,10 @@ resource "aws_security_group" "app" {
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  tags = merge(local.common_tags, {
+    Name = "${local.name_prefix}-sg"
+  })
+
+  depends_on = [terraform_data.workspace_guard]
 }

@@ -1,19 +1,32 @@
-```gitignore
-# Terraform
+
+# Terraform working directory
 terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.*
+
+# Terraform state and workspace state
+terraform/*.tfstate*
+terraform/terraform.tfstate.d/
+
+# Terraform plans
 terraform/*.tfplan
 terraform/tfplan
-terraform/terraform.tfvars
-terraform/terraform.tfvars.json
+
+# Local variable files and secrets
+terraform/*.tfvars
+terraform/*.tfvars.*
+
+# Allow safe example configuration files
+!terraform/dev.tfvars.example
+!terraform/prod.tfvars.example
+
+# Local backups
+terraform/*.before-workspace-*
 
 # Crash logs
 crash.log
+crash.*.log
 
 # Node.js
 node_modules/
 
 # Environment files
 .env
-```

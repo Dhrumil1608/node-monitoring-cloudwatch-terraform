@@ -1,12 +1,10 @@
 
 resource "aws_cloudwatch_event_rule" "alarm_state" {
-  name        = "${var.project_name}-alarm-state"
-  description = "Capture all state changes for the application error and CPU alarms"
+  name        = "${local.name_prefix}-alarm-state"
+  description = "Capture CloudWatch alarm state changes for ${local.environment}"
 
   event_pattern = jsonencode({
-    source = [
-      "aws.cloudwatch"
-    ]
+    source = ["aws.cloudwatch"]
 
     "detail-type" = [
       "CloudWatch Alarm State Change"
@@ -19,18 +17,18 @@ resource "aws_cloudwatch_event_rule" "alarm_state" {
 
     detail = {
       state = {
-        value = [
-          "ALARM",
-          "OK",
-          "INSUFFICIENT_DATA"
-        ]
+        value = ["ALARM"]
       }
     }
   })
+
+  tags = local.common_tags
+
+  depends_on = [terraform_data.workspace_guard]
 }
 
 resource "aws_cloudwatch_log_resource_policy" "eventbridge" {
-  policy_name = "${var.project_name}-eventbridge-policy"
+  policy_name = "${local.name_prefix}-eventbridge-policy"
 
   policy_document = jsonencode({
     Version = "2012-10-17"
@@ -59,6 +57,8 @@ resource "aws_cloudwatch_log_resource_policy" "eventbridge" {
       }
     ]
   })
+
+  depends_on = [terraform_data.workspace_guard]
 }
 
 resource "aws_cloudwatch_event_target" "alarm_logs" {
@@ -68,6 +68,7 @@ resource "aws_cloudwatch_event_target" "alarm_logs" {
   arn = aws_cloudwatch_log_group.alarm_events.arn
 
   depends_on = [
+    terraform_data.workspace_guard,
     aws_cloudwatch_log_resource_policy.eventbridge
   ]
 }

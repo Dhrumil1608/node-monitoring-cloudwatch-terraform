@@ -1,9 +1,9 @@
 
 resource "aws_cloudwatch_metric_alarm" "app_errors" {
-  alarm_name        = "${var.project_name}-errors-greater-than-3"
+  alarm_name        = "${local.name_prefix}-errors-greater-than-3"
   alarm_description = "More than 3 application errors in 5 minutes"
 
-  namespace   = "Application/NodeApp"
+  namespace   = local.metric_namespace
   metric_name = "ErrorCount"
 
   statistic           = "Sum"
@@ -16,17 +16,16 @@ resource "aws_cloudwatch_metric_alarm" "app_errors" {
 
   treat_missing_data = "notBreaching"
 
-  alarm_actions = [
-    aws_sns_topic.alarms.arn
-  ]
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
 
-  ok_actions = [
-    aws_sns_topic.alarms.arn
-  ]
+  tags = local.common_tags
+
+  depends_on = [terraform_data.workspace_guard]
 }
 
 resource "aws_cloudwatch_metric_alarm" "cpu" {
-  alarm_name        = "${var.project_name}-cpu-greater-than-70"
+  alarm_name        = "${local.name_prefix}-cpu-greater-than-70"
   alarm_description = "EC2 CPU utilization greater than 70 percent"
 
   namespace   = "AWS/EC2"
@@ -46,11 +45,10 @@ resource "aws_cloudwatch_metric_alarm" "cpu" {
 
   treat_missing_data = "missing"
 
-  alarm_actions = [
-    aws_sns_topic.alarms.arn
-  ]
+  alarm_actions = [aws_sns_topic.alarms.arn]
+  ok_actions    = [aws_sns_topic.alarms.arn]
 
-  ok_actions = [
-    aws_sns_topic.alarms.arn
-  ]
+  tags = local.common_tags
+
+  depends_on = [terraform_data.workspace_guard]
 }

@@ -1,10 +1,8 @@
-
 resource "aws_cloudwatch_dashboard" "main" {
-  dashboard_name = "${var.project_name}-dashboard"
+  dashboard_name = "${local.name_prefix}-dashboard"
 
   dashboard_body = jsonencode({
     widgets = [
-
       {
         type   = "metric"
         x      = 0
@@ -13,7 +11,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         height = 6
 
         properties = {
-          title  = "EC2 CPU Utilization"
+          title  = "${local.environment} EC2 CPU Utilization"
           view   = "timeSeries"
           region = var.aws_region
           period = 60
@@ -28,7 +26,6 @@ resource "aws_cloudwatch_dashboard" "main" {
           ]
         }
       },
-
       {
         type   = "metric"
         x      = 12
@@ -37,7 +34,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         height = 6
 
         properties = {
-          title  = "Memory Utilization"
+          title  = "${local.environment} Memory Utilization"
           view   = "timeSeries"
           region = var.aws_region
           period = 60
@@ -52,7 +49,6 @@ resource "aws_cloudwatch_dashboard" "main" {
           ]
         }
       },
-
       {
         type   = "metric"
         x      = 0
@@ -61,7 +57,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         height = 6
 
         properties = {
-          title  = "Disk Utilization"
+          title  = "${local.environment} Disk Utilization"
           view   = "timeSeries"
           region = var.aws_region
           period = 60
@@ -71,18 +67,11 @@ resource "aws_cloudwatch_dashboard" "main" {
               "CWAgent",
               "disk_used_percent",
               "InstanceId",
-              aws_instance.app.id,
-              "path",
-              "/",
-              "device",
-              "xvda1",
-              "fstype",
-              "ext4"
+              aws_instance.app.id
             ]
           ]
         }
       },
-
       {
         type   = "metric"
         x      = 12
@@ -91,7 +80,7 @@ resource "aws_cloudwatch_dashboard" "main" {
         height = 6
 
         properties = {
-          title  = "Application Error Count"
+          title  = "${local.environment} Application Error Count"
           view   = "timeSeries"
           region = var.aws_region
           period = 300
@@ -99,13 +88,14 @@ resource "aws_cloudwatch_dashboard" "main" {
 
           metrics = [
             [
-              "Application/NodeApp",
+              local.metric_namespace,
               "ErrorCount"
             ]
           ]
         }
       }
-
     ]
   })
+
+  depends_on = [terraform_data.workspace_guard]
 }
