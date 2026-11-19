@@ -48,7 +48,7 @@ resource "aws_instance" "app" {
     ))
   })
 
-  user_data_replace_on_change = false
+  user_data_replace_on_change = true
 
   depends_on = [
     terraform_data.workspace_guard,

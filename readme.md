@@ -4,12 +4,14 @@
 
 This project provisions AWS infrastructure using Terraform to deploy a Node.js application on Amazon EC2 and implement monitoring, logging, and alerting using Amazon CloudWatch.
 
-The infrastructure supports multiple environments through Terraform Workspaces:
+The infrastructure supports separate development and production environments through Terraform Workspaces.
 
 - **dev** – Development environment
 - **prod** – Production environment
 
-Both environments use the same Terraform configuration, with environment-specific resource names, tags, log retention settings, and independent Terraform state.
+Both environments share the same Terraform configuration while maintaining independent state files, resource names, tags, and environment-specific settings.
+
+Terraform state is stored remotely in Amazon S3 with encryption, versioning, and native S3 state locking.
 
 ## Architecture
 
@@ -61,11 +63,12 @@ Both environments use the same Terraform configuration, with environment-specifi
 | CloudWatch Dashboard | Displays monitoring metrics |
 | Amazon SNS | Sends alarm notifications through email |
 | Amazon EventBridge | Routes CloudWatch alarm state changes |
+| Amazon S3 | Stores Terraform remote state |
 | Terraform | Provisions and manages infrastructure |
 
 ## Multi-Environment Design
 
-Terraform Workspaces are used to maintain separate development and production environments.
+Terraform Workspaces maintain separate development and production environments.
 
 | Configuration | Dev | Prod |
 |---|---|---|
@@ -85,15 +88,17 @@ Examples:
 - `node-monitoring-dev-alerts`
 - `node-monitoring-prod-alerts`
 
-All resources supporting AWS tags receive common tags:
+All supported resources receive common tags:
 
 - Project
 - Environment
 - ManagedBy
 
-A workspace guard prevents infrastructure deployment from the default workspace.
+A Terraform workspace guard prevents deployment from the default workspace and ensures that the configured environment matches the selected workspace.
 
 ## Application Endpoints
+
+The Node.js application listens on port 3000.
 
 | Endpoint | Purpose |
 |---|---|
@@ -101,11 +106,9 @@ A workspace guard prevents infrastructure deployment from the default workspace.
 | `/error` | Generates an application error for testing |
 | `/stress` | Generates CPU load for testing |
 
-The application listens on port 3000.
-
 ## Monitoring and Alerting
 
-### Metrics monitored
+### Metrics Monitored
 
 - EC2 CPU utilization
 - Memory utilization through CloudWatch Agent
@@ -151,7 +154,44 @@ Each environment has its own dashboard containing four widgets:
 3. Disk utilization
 4. Application error count
 
-Dashboard names include the workspace name.
+Dashboard names include the active workspace name.
+
+## Terraform Remote State Backend
+
+This project uses an Amazon S3 backend to store Terraform state remotely.
+
+### Backend Features
+
+- Remote Terraform state storage in S3
+- Server-side encryption
+- S3 bucket versioning
+- Native S3 state locking using `use_lockfile`
+- Separate state files for dev and prod workspaces
+
+The backend configuration is maintained separately from the Terraform provider configuration.
+
+### Workspace State Structure
+
+With the configured workspace key prefix, the state files follow this structure:
+
+```text
+S3 Bucket
+|
+|-- node-monitoring/
+|   |-- terraform.tfstate
+|
+|-- workspaces/
+    |
+    |-- dev/
+    |   |-- node-monitoring/
+    |       |-- terraform.tfstate
+    |
+    |-- prod/
+        |-- node-monitoring/
+            |-- terraform.tfstate
+```
+
+The default workspace state path is shown for completeness. The dev and prod workspaces use their respective remote state paths.
 
 ## Repository Structure
 
@@ -162,9 +202,11 @@ node-monitoring-cloudwatch-terraform/
 |-- .gitignore
 |
 |-- terraform/
+    |
     |-- .gitignore
     |-- .terraform.lock.hcl
     |-- versions.tf
+    |-- backend.tf
     |-- providers.tf
     |-- variables.tf
     |-- locals.tf
@@ -182,23 +224,100 @@ node-monitoring-cloudwatch-terraform/
     |-- cloudwatch-agent-config.json.tftpl
     |-- dev.tfvars.example
     |-- prod.tfvars.example
+    |-- backend.hcl (local, not committed)
 ```
 
 ## Prerequisites
 
-- Terraform 1.5 or later
-- AWS CLI
+Before deploying this project, ensure you have:
+
 - An AWS account
+- Terraform 1.5 or later
+- AWS CLI installed
 - AWS credentials configured locally
+- An S3 bucket for Terraform remote state
 - An email address for SNS notifications
 
-Configure AWS credentials using an AWS CLI profile or another supported AWS authentication method.
+### Configure AWS CLI
+
+Create an AWS CLI profile:
+
+```cmd
+aws configure --profile your-aws-profile
+```
+
+Verify the configured identity:
+
+```cmd
+aws sts get-caller-identity --profile your-aws-profile
+```
+
+The AWS account ID returned by this command must match the `allowed_account_id` value configured in your environment variable file.
+
+The AWS identity must have permissions to:
+
+- Manage the infrastructure resources used by this project
+- Access the Terraform state bucket
+- Read and write Terraform state
+- Acquire and release S3 state locks
+
+## S3 Backend Setup
+
+The S3 bucket must exist before Terraform initializes the backend.
+
+Create a uniquely named S3 bucket in your selected AWS region.
+
+Configure the bucket with:
+
+- Block all public access
+- Enable bucket versioning
+- Enable default server-side encryption
+- Configure native S3 state locking through `use_lockfile = true` in `backend.hcl`
+
+The AWS profile used by Terraform must have the necessary S3 permissions.
+
+### Create Local Backend Configuration
+
+Inside the `terraform` directory, create a file named `backend.hcl`.
 
 Example:
 
-```cmd
-aws configure --profile aws-learning-new
+```hcl
+bucket               = "your-unique-terraform-state-bucket"
+key                  = "node-monitoring/terraform.tfstate"
+region               = "ap-south-1"
+profile              = "your-aws-profile"
+encrypt              = true
+use_lockfile         = true
+workspace_key_prefix = "workspaces"
 ```
+
+Replace the example values with your own bucket name, AWS region, and profile.
+
+**Important:**
+
+- Do not commit `backend.hcl`.
+- The file is excluded through `.gitignore`.
+- Do not store AWS access keys or secret keys in this file.
+- The backend bucket should be created and secured independently of the infrastructure managed by this Terraform configuration.
+
+### Initialize Terraform
+
+For a fresh deployment:
+
+```cmd
+terraform init -backend-config="backend.hcl"
+```
+
+If migrating an existing local Terraform state to S3:
+
+```cmd
+terraform init -migrate-state -backend-config="backend.hcl"
+```
+
+Terraform may ask for confirmation to migrate state. Review the prompt carefully before proceeding.
+
+When migrating a project with multiple workspaces, ensure that all existing workspace states are accounted for.
 
 ## Terraform Deployment
 
@@ -207,60 +326,146 @@ All Terraform commands below should be executed from the `terraform` directory.
 ### 1. Initialize Terraform
 
 ```cmd
-terraform init
+terraform init -backend-config="backend.hcl"
 ```
 
-### 2. Create workspaces
+This initializes the required providers and configures the S3 remote backend.
+
+If the backend has already been initialized and configured, Terraform does not need to be reinitialized for every deployment.
+
+### 2. Create Terraform Workspaces
+
+For a fresh deployment:
 
 ```cmd
 terraform workspace new dev
 terraform workspace new prod
 ```
 
-If the workspaces already exist, list them instead:
+If the workspaces already exist, list them:
 
 ```cmd
 terraform workspace list
 ```
 
-### 3. Configure environment variables
+Select the required workspace:
 
-Create local configuration files from the examples:
+```cmd
+terraform workspace select dev
+```
+
+**Note:** Do not create duplicate workspaces. Existing workspaces should be selected.
+
+### 3. Configure Environment Variables
+
+Create local configuration files from the example files:
 
 ```cmd
 copy dev.tfvars.example dev.tfvars
 copy prod.tfvars.example prod.tfvars
 ```
 
-Edit both files and configure your own values, especially `alarm_email`.
+Edit both files and configure the following values:
 
-These local files are intentionally excluded from Git.
+- AWS region
+- Project name
+- EC2 instance type
+- SNS notification email
+- Application log retention
+- Event log retention
+- AWS CLI profile
+- Allowed AWS account ID
+- Environment name
 
-### 4. Deploy development
+Example development configuration:
+
+```hcl
+aws_region               = "ap-south-1"
+project_name             = "node-monitoring"
+instance_type            = "t2.micro"
+alarm_email              = "your-email@example.com"
+app_log_retention_days   = 7
+event_log_retention_days = 7
+aws_profile              = "your-aws-profile"
+allowed_account_id       = "123456789012"
+environment              = "dev"
+```
+
+For production, use the production example file and set:
+
+```hcl
+environment = "prod"
+```
+
+Use your actual 12-digit AWS account ID and configured AWS CLI profile.
+
+The `.tfvars` files are intentionally excluded from Git.
+
+### 4. Deploy Development
+
+Select the dev workspace:
 
 ```cmd
 terraform workspace select dev
-terraform plan -var-file="dev.tfvars" -out="dev.tfplan"
-terraform apply "dev.tfplan"
 ```
 
-### 5. Deploy production
+Verify the workspace:
+
+```cmd
+terraform workspace show
+```
+
+Review the execution plan:
+
+```cmd
+terraform plan -var-file="dev.tfvars"
+```
+
+Apply the reviewed configuration:
+
+```cmd
+terraform apply -var-file="dev.tfvars"
+```
+
+Review the proposed changes and confirm the operation when satisfied.
+
+### 5. Deploy Production
+
+Select the prod workspace:
 
 ```cmd
 terraform workspace select prod
-terraform plan -var-file="prod.tfvars" -out="prod.tfplan"
-terraform apply "prod.tfplan"
 ```
 
-Always review the plan before applying changes. Check proposed resource replacements and deletions carefully.
+Verify the workspace:
 
-### 6. Switch environments
+```cmd
+terraform workspace show
+```
+
+Review the execution plan:
+
+```cmd
+terraform plan -var-file="prod.tfvars"
+```
+
+Apply the reviewed configuration:
+
+```cmd
+terraform apply -var-file="prod.tfvars"
+```
+
+Always review the plan before applying changes. Pay particular attention to resource replacements and deletions.
+
+### 6. Switch Between Environments
+
+Select development:
 
 ```cmd
 terraform workspace select dev
 ```
 
-Or:
+Select production:
 
 ```cmd
 terraform workspace select prod
@@ -272,58 +477,135 @@ List available workspaces:
 terraform workspace list
 ```
 
-Each workspace maintains its own Terraform state.
+Each workspace maintains a separate Terraform state file in the S3 backend.
 
 ## Verification
 
-Check the active workspace:
+### Verify Active Workspace
 
 ```cmd
 terraform workspace show
 ```
 
-Review managed resources:
+### List Managed Resources
 
 ```cmd
 terraform state list
 ```
 
-Review outputs:
+### View Terraform Outputs
 
 ```cmd
 terraform output
 ```
 
-Check for configuration drift:
+### Validate Terraform Configuration
 
 ```cmd
+terraform fmt -recursive
+terraform validate
+```
+
+### Check Infrastructure Drift
+
+For development:
+
+```cmd
+terraform workspace select dev
 terraform plan -var-file="dev.tfvars"
 ```
 
-Use the corresponding variable file for the selected workspace.
+For production:
 
-Verify the application:
+```cmd
+terraform workspace select prod
+terraform plan -var-file="prod.tfvars"
+```
+
+A clean plan should report:
+
+```text
+No changes. Your infrastructure matches the configuration.
+```
+
+### Verify Application Health
+
+Use the public IP address of the relevant EC2 instance:
 
 ```cmd
 curl http://<EC2_PUBLIC_IP>:3000/health
 ```
 
-Verify the environment-specific dashboard:
+### Verify CloudWatch Dashboard
+
+Development:
 
 ```cmd
-aws cloudwatch get-dashboard --dashboard-name node-monitoring-dev-dashboard --region ap-south-1
+aws cloudwatch get-dashboard --dashboard-name node-monitoring-dev-dashboard --region ap-south-1 --profile your-aws-profile
 ```
 
-Replace `dev` with `prod` when checking production.
+Production:
+
+```cmd
+aws cloudwatch get-dashboard --dashboard-name node-monitoring-prod-dashboard --region ap-south-1 --profile your-aws-profile
+```
 
 ## SNS Email Notifications
 
-After deployment, SNS sends a subscription confirmation email to the configured address.
+The project creates separate SNS topics for development and production.
 
-Confirm the subscription through the email link before expecting notifications.
+After deployment:
 
-Development and production use separate SNS topics.
+1. SNS sends a subscription confirmation email to the configured address.
+2. Open the email.
+3. Select the confirmation link.
+4. Verify that the subscription is confirmed.
+
+Email confirmation is required before SNS can deliver notifications to that email endpoint.
 
 ## Security and Cost Considerations
 
-- Do not commit actual `.tfvars` files, Terraform state
+### Security
+
+- Do not commit actual `.tfvars` files.
+- Do not commit AWS credentials or secret keys.
+- Do not commit Terraform state files or local state backups.
+- Do not commit the local `backend.hcl` file.
+- Keep S3 Block Public Access enabled.
+- Enable S3 bucket versioning and encryption.
+- Use IAM permissions following the principle of least privilege.
+- Use `allowed_account_id` to prevent deployment to an unintended AWS account.
+- Use the workspace guard to prevent deployment from the default workspace.
+- Review Terraform plans before applying infrastructure changes.
+
+### Cost Considerations
+
+AWS resources may incur charges even when they are not actively being used.
+
+Potential costs include:
+
+- EC2 instances
+- EBS volumes
+- S3 storage and requests
+- CloudWatch Logs ingestion and retention
+- CloudWatch alarms and dashboards
+- SNS notifications
+
+Monitor AWS billing and usage regularly.
+
+## Project Goals and Learning Outcomes
+
+This project demonstrates practical experience with:
+
+- Infrastructure as Code using Terraform
+- Terraform workspaces for multi-environment deployments
+- S3 remote state management
+- Native S3 state locking
+- AWS provider configuration and account safeguards
+- VPC and EC2 provisioning
+- IAM roles and instance profiles
+- CloudWatch metrics, logs, dashboards, and alarms
+- SNS email notifications
+- EventBridge event routing
+- Terraform variables, locals, templates, and outputs
+- Git and GitHub version control

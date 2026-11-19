@@ -30,3 +30,12 @@ node_modules/
 
 # Environment files
 .env
+
+# Local Terraform backend configuration
+terraform/backend.hcl
+
+# Terraform state backups
+terraform/state-backup/
+
+# Local S3 bucket configuration
+terraform/bucket-encryption.json
